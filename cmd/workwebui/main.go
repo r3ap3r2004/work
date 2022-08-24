@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/gocraft/work/webui"
@@ -13,6 +14,7 @@ import (
 )
 
 var (
+	redisPassword  = flag.String("password", "", "redis password")
 	redisHostPort  = flag.String("redis", ":6379", "redis hostport")
 	redisDatabase  = flag.String("database", "0", "redis database")
 	redisNamespace = flag.String("ns", "work", "redis namespace")
@@ -27,6 +29,9 @@ func main() {
 	fmt.Println("database = ", *redisDatabase)
 	fmt.Println("namespace = ", *redisNamespace)
 	fmt.Println("listen = ", *webHostPort)
+	if len(*redisPassword) > 0 {
+		fmt.Println("accessing with password")
+	}
 
 	database, err := strconv.Atoi(*redisDatabase)
 	if err != nil {
@@ -34,13 +39,13 @@ func main() {
 		return
 	}
 
-	pool := newPool(*redisHostPort, database)
+	pool := newPool(*redisHostPort, database, redisPassword)
 
 	server := webui.NewServer(*redisNamespace, pool, *webHostPort)
 	server.Start()
 
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Kill)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	<-c
 
@@ -49,13 +54,13 @@ func main() {
 	fmt.Println("\nQuitting...")
 }
 
-func newPool(addr string, database int) *redis.Pool {
+func newPool(addr string, database int, password *string) *redis.Pool {
 	return &redis.Pool{
 		MaxActive:   3,
 		MaxIdle:     3,
 		IdleTimeout: 240 * time.Second,
 		Dial: func() (redis.Conn, error) {
-			return redis.DialURL(addr, redis.DialDatabase(database))
+			return redis.Dial("tcp", addr, redis.DialDatabase(database), redis.DialPassword(*password), redis.DialUseTLS(true), redis.DialTLSSkipVerify(true))
 		},
 		Wait: true,
 	}
